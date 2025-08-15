@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 통합 관리 도구</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+    <style>
+        /* 기본 스타일 */
+        .preview-container { max-height: 400px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 8px; }
+        .page-thumbnail { cursor: pointer; transition: all 0.2s; border: 2px solid transparent; }
+        .page-thumbnail:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .page-thumbnail.selected { border-color: #3b82f6; background-color: #eff6ff; }
+        .active-function { background-color: #3b82f6 !important; transform: scale(1.02); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        .drag-over { background-color: #eff6ff !important; border-color: #3b82f6 !important; }
+        .compression-stats { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; padding: 12px; margin-top: 12px; }
+        .realistic-badge { background: linear-gradient(45deg, #10b981, #059669); color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; display: inline-block; }
+        
+        /* 버튼 스타일 명시적 정의 */
+        .function-button {
+            width: 100%;
+            font-weight: 500;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            position: relative;
+        }
+        
+        /* 버튼 컨테이너 - 일정한 간격 설정 */
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem; /* 12px 간격 */
+        }
+        
+        .btn-blue { background-color: #3b82f6; }
+        .btn-blue:hover { background-color: #2563eb; }
+        
+        .btn-green { background-color: #10b981; }
+        .btn-green:hover { background-color: #059669; }
+        
+        .btn-purple { background-color: #8b5cf6; }
+        .btn-purple:hover { background-color: #7c3aed; }
+        
+        .btn-orange { background-color: #f97316; }
+        .btn-orange:hover { background-color: #ea580c; }
+
+        .btn-yellow { background-color: #fbbf24; }
+        .btn-yellow:hover { background-color: #eab308; }
+        
+        @media print { .no-print { display: none !important; } }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <div class="text-center mb-8">
+            <h2 class="text-4xl font-bold text-gray-800 my-6">
+                <i class="fas fa-file-pdf text-red-500 mr-3"></i>
+                PDF 통합 관리 도구
+                <span class="realistic-badge ml-2">실제 압축</span>
+            </h2>
+            <p class="text-lg text-gray-600">실제 이미지 압축 및 메타데이터 최적화를 통한 효과적인 PDF 관리</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1 space-y-6">
+                <!-- 작업 기능 메뉴를 맨 위로 이동 -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-cogs text-blue-500 mr-2"></i>작업 기능</h3>
+                    <div class="button-container">
+                        <button id="mergeBtn" class="function-button btn-blue">
+                            <i class="fas fa-layer-group mr-2"></i>PDF 합치기
+                        </button>
+                        <button id="compressBtn" class="function-button btn-green">
+                            <i class="fas fa-compress-alt mr-2"></i>실제 PDF 압축 
+                            <span class="realistic-badge ml-2">효과적</span>
+                        </button>
+                        <button id="extractBtn" class="function-button btn-purple">
+                            <i class="fas fa-scissors mr-2"></i>페이지 추출
+                        </button>
+                        <button id="multiSlideBtn" class="function-button btn-orange">
+                            <i class="fas fa-th mr-2"></i>멀티 슬라이드
+                        </button>
+                        <button id="splitBtn" class="function-button btn-yellow">
+                            <i class="fas fa-file-export mr-2"></i>PDF 분할
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 파일 업로드 메뉴를 아래로 이동 -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-cloud-upload-alt text-purple-500 mr-2"></i>파일 업로드</h3>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                        <input type="file" id="fileInput" accept=".pdf" multiple class="hidden">
+                        <div id="dropZone" class="cursor-pointer">
+                            <i class="fas fa-file-pdf text-5xl text-gray-400 mb-4"></i>
+                            <p class="text-gray-600 mb-2">PDF 파일 선택 또는 드래그</p>
+                            <p class="text-sm text-gray-500" id="fileInputGuide">여러 파일 동시 선택 가능</p>
+                        </div>
+                    </div>
+                    <div id="fileList" class="mt-4 space-y-2"></div>
+                </div>
+
+                <div id="compressSettings" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-sliders-h text-orange-500 mr-2"></i>실제 압축 설정</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">이미지 품질</label>
+                            <div class="flex items-center space-x-3">
+                                <input type="range" id="imageQuality" min="0.1" max="1" step="0.05" value="0.75" class="flex-1">
+                                <span id="imageQualityValue" class="text-sm font-medium text-gray-600 w-12 text-center">75%</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">이미지 해상도 (DPI)</label>
+                            <select id="imageDPI" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="72">72 DPI (최저 화질, 최대 압축)</option>
+                                <option value="96">96 DPI (웹용)</option>
+                                <option value="150" selected>150 DPI (균형)</option>
+                                <option value="200">200 DPI (고품질)</option>
+                                <option value="300">300 DPI (인쇄용, 압축률 낮음)</option>
+                            </select>
+                        </div>
+                        <div class="space-y-3 pt-2">
+                            <label class="flex items-center"><input type="checkbox" id="removeMetadata" checked class="mr-2"><span class="text-sm text-gray-700">불필요한 메타데이터 제거</span></label>
+                            <label class="flex items-center"><input type="checkbox" id="useObjectStreams" checked class="mr-2"><span class="text-sm text-gray-700">PDF 구조 최적화 (Object Streams)</span></label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="extractSettings" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-list-ol text-indigo-500 mr-2"></i>추출 설정</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">페이지 범위</label>
+                            <input type="text" id="pageRange" placeholder="예: 1-3, 5, 7-10" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex items-center">
+                            <input type="checkbox" id="selectAll" class="mr-2">
+                            <label for="selectAll" class="text-sm text-gray-700">모든 페이지 선택</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="multiSlideSettings" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-th text-orange-500 mr-2"></i>멀티 슬라이드 설정</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">페이지당 슬라이드 수</label>
+                            <select id="slidesPerPage" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="2">2개 (1x2)</option>
+                                <option value="4">4개 (2x2)</option>
+                                <option value="6">6개 (2x3)</option>
+                                <option value="9">9개 (3x3)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">페이지 방향</label>
+                            <select id="pageOrientation" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="portrait">세로 (Portrait)</option>
+                                <option value="landscape">가로 (Landscape)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">여백 (mm)</label>
+                            <input type="number" id="pageMargin" value="10" min="0" max="50" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex items-center">
+                            <input type="checkbox" id="addBorder" class="mr-2">
+                            <label for="addBorder" class="text-sm text-gray-700">슬라이드 테두리 추가</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="splitSettings" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-file-export text-yellow-500 mr-2"></i>분할 설정</h3>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">파일당 페이지 수</label>
+                        <input type="number" id="splitPageCount" value="5" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <button id="processBtn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50" disabled><i class="fas fa-play mr-2"></i><span id="processText">작업 시작</span></button>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-eye text-green-500 mr-2"></i>PDF 미리보기<span id="previewInfo" class="text-sm text-gray-500 ml-2"></span></h3>
+                    <div id="previewContainer" class="preview-container bg-gray-50 p-4 rounded-lg">
+                        <div id="previewPlaceholder" class="text-center text-gray-500 py-16">
+                            <i class="fas fa-file-pdf text-6xl text-gray-300 mb-4"></i>
+                            <p class="text-lg">PDF 파일을 선택하면 미리보기가 표시됩니다</p>
+                        </div>
+                        <div id="previewContent" class="grid grid-cols-2 md:grid-cols-3 gap-4 hidden"></div>
+                    </div>
+                </div>
+                <div id="progressSection" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-tasks text-yellow-500 mr-2"></i>처리 진행 상황</h3>
+                    <div class="bg-gray-200 rounded-full h-4 mb-4">
+                        <div id="progressBar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText" class="text-center text-gray-600">준비 중...</p>
+                </div>
+                <div id="resultSection" class="bg-white rounded-lg shadow-md p-6 hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4"><i class="fas fa-check-circle text-green-500 mr-2"></i>작업 완료</h3>
+                    <div class="text-center">
+                        <div id="resultInfo" class="bg-gray-50 rounded-lg p-4 mb-4 text-left"></div>
+                        <button id="downloadBtn" class="bg-green-500 hover:bg-green-600 text-white font-medium py-3 px-6 rounded-lg transition duration-200"><i class="fas fa-download mr-2"></i>다운로드</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="text-center mt-8 py-4 text-gray-500 border-t">
+            <p>© 2025 Dr.Ahn Works: Decosage</p>
+            <p class="text-sm mt-1">Advanced Document & Content Sage</p>
+        </div>
+    </div>
+
+<script>
+    // PDF.js 워커 설정
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+    // 전역 변수
+    let currentMode = 'merge';
+    let selectedFiles = [];
+    let selectedPages = new Set();
+    let resultBlob = null;
+
+    // DOM 요소
+    const elements = {
+        fileInput: document.getElementById('fileInput'),
+        dropZone: document.getElementById('dropZone'),
+        fileList: document.getElementById('fileList'),
+        previewContainer: document.getElementById('previewContainer'),
+        previewPlaceholder: document.getElementById('previewPlaceholder'),
+        previewContent: document.getElementById('previewContent'),
+        previewInfo: document.getElementById('previewInfo'),
+        mergeBtn: document.getElementById('mergeBtn'),
+        compressBtn: document.getElementById('compressBtn'),
+        extractBtn: document.getElementById('extractBtn'),
+        multiSlideBtn: document.getElementById('multiSlideBtn'),
+        splitBtn: document.getElementById('splitBtn'),
+        compressSettings: document.getElementById('compressSettings'),
+        extractSettings: document.getElementById('extractSettings'),
+        multiSlideSettings: document.getElementById('multiSlideSettings'),
+        splitSettings: document.getElementById('splitSettings'),
+        processBtn: document.getElementById('processBtn'),
+        processText: document.getElementById('processText'),
+        progressSection: document.getElementById('progressSection'),
+        progressBar: document.getElementById('progressBar'),
+        progressText: document.getElementById('progressText'),
+        resultSection: document.getElementById('resultSection'),
+        resultInfo: document.getElementById('resultInfo'),
+        downloadBtn: document.getElementById('downloadBtn'),
+        imageQuality: document.getElementById('imageQuality'),
+        imageQualityValue: document.getElementById('imageQualityValue'),
+        imageDPI: document.getElementById('imageDPI'),
+        removeMetadata: document.getElementById('removeMetadata'),
+        useObjectStreams: document.getElementById('useObjectStreams'),
+        pageRange: document.getElementById('pageRange'),
+        selectAll: document.getElementById('selectAll'),
+        fileInputGuide: document.getElementById('fileInputGuide'),
+        slidesPerPage: document.getElementById('slidesPerPage'),
+        pageOrientation: document.getElementById('pageOrientation'),
+        pageMargin: document.getElementById('pageMargin'),
+        addBorder: document.getElementById('addBorder'),
+        splitPageCount: document.getElementById('splitPageCount'),
+    };
+
+    // 이벤트 리스너 설정
+    elements.dropZone.addEventListener('click', () => elements.fileInput.click());
+    elements.dropZone.addEventListener('dragover', e => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); });
+    elements.dropZone.addEventListener('dragleave', e => e.currentTarget.classList.remove('drag-over'));
+    elements.dropZone.addEventListener('drop', handleDrop);
+    elements.fileInput.addEventListener('change', handleFileSelect);
+
+    elements.mergeBtn.addEventListener('click', () => setMode('merge'));
+    elements.compressBtn.addEventListener('click', () => setMode('compress'));
+    elements.extractBtn.addEventListener('click', () => setMode('extract'));
+    elements.multiSlideBtn.addEventListener('click', () => setMode('multiSlide'));
+    elements.splitBtn.addEventListener('click', () => setMode('split'));
+    
+    elements.imageQuality.addEventListener('input', e => {
+        elements.imageQualityValue.textContent = Math.round(e.target.value * 100) + '%';
+    });
+    
+    elements.selectAll.addEventListener('change', handleSelectAll);
+    elements.processBtn.addEventListener('click', processFiles);
+    elements.downloadBtn.addEventListener('click', downloadResult);
+    elements.splitPageCount.addEventListener('input', updateProcessButtonState);
+
+    function handleDrop(e) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        const files = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
+        handleFiles(files);
+    }
+
+    function handleFileSelect(e) {
+        const files = Array.from(e.target.files);
+        handleFiles(files);
+    }
+
+    async function handleFiles(files) {
+        selectedFiles = (currentMode === 'compress' || currentMode === 'multiSlide' || currentMode === 'split') ? [files[0]] : files;
+        selectedPages.clear();
+        
+        displayFileList();
+        await loadAndPreviewFiles();
+        updateProcessButtonState();
+    }
+
+    function displayFileList() {
+        elements.fileList.innerHTML = '';
+        selectedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'flex items-center justify-between bg-gray-50 p-3 rounded-lg';
+            fileItem.innerHTML = `
+                <div class="flex items-center overflow-hidden">
+                    <i class="fas fa-file-pdf text-red-500 mr-3"></i>
+                    <div class="overflow-hidden">
+                        <p class="font-medium text-gray-800 text-sm truncate">${file.name}</p>
+                        <p class="text-xs text-gray-500">${formatFileSize(file.size)}</p>
+                    </div>
+                </div>
+                <button onclick="removeFile(${index})" class="text-red-500 hover:text-red-700 ml-2 flex-shrink-0">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            elements.fileList.appendChild(fileItem);
+        });
+    }
+
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        selectedPages.clear();
+        displayFileList();
+        loadAndPreviewFiles();
+        updateProcessButtonState();
+    }
+
+    async function loadAndPreviewFiles() {
+        elements.previewPlaceholder.classList.toggle('hidden', selectedFiles.length > 0);
+        elements.previewContent.classList.toggle('hidden', selectedFiles.length === 0);
+        elements.previewContent.innerHTML = '';
+        elements.resultSection.classList.add('hidden');
+
+        if (selectedFiles.length === 0) {
+            elements.previewInfo.textContent = '';
+            return;
+        }
+
+        try {
+            let totalPages = 0;
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfDoc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                totalPages += pdfDoc.numPages;
+
+                for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                    const page = await pdfDoc.getPage(pageNum);
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    
+                    const viewport = page.getViewport({ scale: 0.3 });
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    
+                    await page.render({ canvasContext: context, viewport }).promise;
+
+                    const pageContainer = document.createElement('div');
+                    pageContainer.className = 'page-thumbnail bg-white p-2 rounded-lg shadow-sm';
+                    pageContainer.innerHTML = `
+                        <img src="${canvas.toDataURL()}" class="rounded-md mb-2">
+                        <div class="text-xs text-center text-gray-600">
+                            <input type="checkbox" class="page-checkbox mr-1" data-file-index="${i}" data-page-num="${pageNum}">
+                            <span>${pageNum} 페이지</span>
+                        </div>
+                    `;
+                    elements.previewContent.appendChild(pageContainer);
+                }
+            }
+            elements.previewInfo.textContent = `총 ${selectedFiles.length}개 파일, ${totalPages}페이지`;
+            document.querySelectorAll('.page-checkbox').forEach(cb => cb.addEventListener('change', handlePageSelection));
+        } catch (error) {
+            console.error('PDF 로딩 오류:', error);
+            elements.previewContent.innerHTML = `<div class="col-span-full text-center text-red-500 p-8"><p>PDF 파일을 불러오는데 실패했습니다.</p></div>`;
+        }
+    }
+
+    function handlePageSelection(e) {
+        const { fileIndex, pageNum } = e.target.dataset;
+        const pageKey = `${fileIndex}-${pageNum}`;
+        
+        if (e.target.checked) {
+            selectedPages.add(pageKey);
+            e.target.closest('.page-thumbnail').classList.add('selected');
+        } else {
+            selectedPages.delete(pageKey);
+            e.target.closest('.page-thumbnail').classList.remove('selected');
+        }
+        updateProcessButtonState();
+    }
+
+    function handleSelectAll(e) {
+        document.querySelectorAll('.page-checkbox').forEach(checkbox => {
+            if (checkbox.checked !== e.target.checked) {
+                checkbox.checked = e.target.checked;
+                handlePageSelection({ target: checkbox });
+            }
+        });
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        
+        [elements.mergeBtn, elements.compressBtn, elements.extractBtn, elements.multiSlideBtn, elements.splitBtn].forEach(btn => btn.classList.remove('active-function'));
+        elements[mode + 'Btn'].classList.add('active-function');
+
+        elements.compressSettings.classList.toggle('hidden', mode !== 'compress');
+        elements.extractSettings.classList.toggle('hidden', mode !== 'extract');
+        elements.multiSlideSettings.classList.toggle('hidden', mode !== 'multiSlide');
+        elements.splitSettings.classList.toggle('hidden', mode !== 'split');
+        
+        elements.fileInput.multiple = (mode === 'merge' || mode === 'extract');
+        elements.fileInputGuide.textContent = (mode === 'compress' || mode === 'multiSlide' || mode === 'split') ? '하나의 파일만 선택 가능' : '여러 파일 동시 선택 가능';
+
+        const modeText = { 
+            merge: 'PDF 합치기', 
+            compress: '실제 PDF 압축', 
+            extract: '페이지 추출',
+            multiSlide: '멀티 슬라이드 생성',
+            split: 'PDF 분할'
+        };
+        elements.processText.textContent = modeText[mode] + ' 시작';
+        
+        if (selectedFiles.length > 0) {
+            handleFiles(selectedFiles);
+        }
+        updateProcessButtonState();
+    }
+
+    function updateProcessButtonState() {
+        let enabled = false;
+        if (selectedFiles.length > 0) {
+            switch (currentMode) {
+                case 'merge': enabled = selectedFiles.length > 1; break;
+                case 'compress': enabled = selectedFiles.length === 1; break;
+                case 'extract': enabled = selectedPages.size > 0; break;
+                case 'multiSlide': enabled = selectedFiles.length === 1; break;
+                case 'split': enabled = selectedFiles.length === 1 && parseInt(elements.splitPageCount.value) > 0; break;
+            }
+        }
+        elements.processBtn.disabled = !enabled;
+    }
+
+    async function processFiles() {
+        if (elements.processBtn.disabled) return;
+
+        elements.processBtn.disabled = true;
+        elements.progressSection.classList.remove('hidden');
+        elements.resultSection.classList.add('hidden');
+
+        try {
+            switch (currentMode) {
+                case 'merge': await mergePDFs(); break;
+                case 'compress': await compressPDF(); break;
+                case 'extract': await extractPages(); break;
+                case 'multiSlide': await createMultiSlide(); break;
+                case 'split': await splitPDF(); break;
+            }
+        } catch (error) {
+            alert('처리 중 오류가 발생했습니다: ' + error.message);
+            console.error(error);
+        } finally {
+            elements.processBtn.disabled = false;
+            elements.progressSection.classList.add('hidden');
+        }
+    }
+
+    async function createMultiSlide() {
+        const file = selectedFiles[0];
+        const slidesPerPage = parseInt(elements.slidesPerPage.value);
+        const orientation = elements.pageOrientation.value;
+        const marginMm = parseInt(elements.pageMargin.value);
+        const addBorder = elements.addBorder.checked;
+
+        updateProgress(5, 'PDF 파일 분석 중...');
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const sourcePdfDoc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+        const numPages = sourcePdfDoc.numPages;
+
+        const newPdfDoc = await PDFLib.PDFDocument.create();
+
+        // A4 크기 설정 (mm to points: 1mm = 2.83465 points)
+        const mmToPoints = 2.83465;
+        const margin = marginMm * mmToPoints;
+        
+        let pageWidth, pageHeight;
+        if (orientation === 'portrait') {
+            pageWidth = 210 * mmToPoints; // A4 width
+            pageHeight = 297 * mmToPoints; // A4 height
+        } else {
+            pageWidth = 297 * mmToPoints; // A4 height as width
+            pageHeight = 210 * mmToPoints; // A4 width as height
+        }
+
+        // 그리드 레이아웃 계산
+        let cols, rows;
+        switch (slidesPerPage) {
+            case 2: cols = 1; rows = 2; break;
+            case 4: cols = 2; rows = 2; break;
+            case 6: cols = 2; rows = 3; break;
+            case 9: cols = 3; rows = 3; break;
+        }
+
+        const slideWidth = (pageWidth - margin * 2 - (cols - 1) * margin/2) / cols;
+        const slideHeight = (pageHeight - margin * 2 - (rows - 1) * margin/2) / rows;
+
+        updateProgress(10, '멀티 슬라이드 페이지 생성 중...');
+
+        const totalNewPages = Math.ceil(numPages / slidesPerPage);
+        
+        for (let newPageIdx = 0; newPageIdx < totalNewPages; newPageIdx++) {
+            updateProgress(10 + (newPageIdx / totalNewPages) * 80, `페이지 ${newPageIdx + 1}/${totalNewPages} 생성 중...`);
+
+            const newPage = newPdfDoc.addPage([pageWidth, pageHeight]);
+
+            for (let slideIdx = 0; slideIdx < slidesPerPage; slideIdx++) {
+                const sourcePageNum = newPageIdx * slidesPerPage + slideIdx + 1;
+                if (sourcePageNum > numPages) break;
+
+                const sourcePage = await sourcePdfDoc.getPage(sourcePageNum);
+                const viewport = sourcePage.getViewport({ scale: 1 });
+
+                // 슬라이드 위치 계산
+                const col = slideIdx % cols;
+                const row = Math.floor(slideIdx / cols);
+                const x = margin + col * (slideWidth + margin/2);
+                const y = pageHeight - margin - (row + 1) * slideHeight - row * margin/2;
+
+                // Canvas로 페이지 렌더링
+                const scale = Math.min(slideWidth / viewport.width, slideHeight / viewport.height) * 2; // 고해상도를 위해 2배 스케일
+                const scaledViewport = sourcePage.getViewport({ scale });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = scaledViewport.width;
+                canvas.height = scaledViewport.height;
+
+                await sourcePage.render({ canvasContext: context, viewport: scaledViewport }).promise;
+
+                // 이미지로 변환 및 삽입
+                const imageBytes = await fetch(canvas.toDataURL('image/png')).then(res => res.arrayBuffer());
+                const image = await newPdfDoc.embedPng(imageBytes);
+
+                // 실제 그리기 크기 계산
+                const drawWidth = Math.min(slideWidth, (slideHeight / viewport.height) * viewport.width);
+                const drawHeight = Math.min(slideHeight, (slideWidth / viewport.width) * viewport.height);
+                const drawX = x + (slideWidth - drawWidth) / 2;
+                const drawY = y + (slideHeight - drawHeight) / 2;
+
+                newPage.drawImage(image, {
+                    x: drawX,
+                    y: drawY,
+                    width: drawWidth,
+                    height: drawHeight,
+                });
+
+                // 테두리 추가
+                if (addBorder) {
+                    newPage.drawRectangle({
+                        x: x,
+                        y: y,
+                        width: slideWidth,
+                        height: slideHeight,
+                        borderColor: PDFLib.rgb(0.8, 0.8, 0.8),
+                        borderWidth: 1,
+                    });
+                }
+
+                // 페이지 번호 추가
+                newPage.drawText(`${sourcePageNum}`, {
+                    x: x + slideWidth - 20,
+                    y: y + 5,
+                    size: 8,
+                    color: PDFLib.rgb(0.5, 0.5, 0.5),
+                });
+            }
+        }
+
+        updateProgress(95, '최종 PDF 생성 중...');
+        
+        const pdfBytes = await newPdfDoc.save();
+        resultBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+        updateProgress(100, '멀티 슬라이드 생성 완료!');
+        
+        elements.resultInfo.innerHTML = `
+            <p><strong>작업 유형:</strong> 멀티 슬라이드 생성</p>
+            <p><strong>원본 페이지 수:</strong> ${numPages}페이지</p>
+            <p><strong>생성된 페이지 수:</strong> ${totalNewPages}페이지</p>
+            <p><strong>페이지당 슬라이드:</strong> ${slidesPerPage}개</p>
+            <p><strong>페이지 방향:</strong> ${orientation === 'portrait' ? '세로' : '가로'}</p>
+            <p><strong>여백:</strong> ${marginMm}mm</p>
+            <p><strong>결과 크기:</strong> ${formatFileSize(resultBlob.size)}</p>
+        `;
+        elements.resultSection.classList.remove('hidden');
+    }
+
+    async function mergePDFs() {
+        const mergedPdf = await PDFLib.PDFDocument.create();
+        for (let i = 0; i < selectedFiles.length; i++) {
+            updateProgress((i / selectedFiles.length) * 100, `${selectedFiles[i].name} 처리 중...`);
+            const arrayBuffer = await selectedFiles[i].arrayBuffer();
+            const pdf = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+            const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+            copiedPages.forEach(page => mergedPdf.addPage(page));
+        }
+
+        updateProgress(100, '최종 PDF 생성 중...');
+        const pdfBytes = await mergedPdf.save();
+        resultBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+        const originalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+        
+        elements.resultInfo.innerHTML = `
+            <p><strong>작업 유형:</strong> PDF 합치기</p>
+            <p><strong>원본 파일 수:</strong> ${selectedFiles.length}개</p>
+            <p><strong>원본 총 크기:</strong> ${formatFileSize(originalSize)}</p>
+            <p><strong>결과 크기:</strong> ${formatFileSize(resultBlob.size)}</p>
+        `;
+        elements.resultSection.classList.remove('hidden');
+    }
+    
+    async function compressPDF() {
+        const file = selectedFiles[0];
+        const originalSize = file.size;
+        const quality = parseFloat(elements.imageQuality.value);
+        const dpi = parseInt(elements.imageDPI.value);
+
+        updateProgress(5, 'PDF 파일 분석 중...');
+        
+        const arrayBuffer = await file.arrayBuffer();
+        
+        const sourcePdfDoc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+        const numPages = sourcePdfDoc.numPages;
+
+        const newPdfDoc = await PDFLib.PDFDocument.create();
+
+        updateProgress(10, '페이지별 압축 시작...');
+
+        for (let i = 1; i <= numPages; i++) {
+            updateProgress(10 + (i / numPages) * 80, `페이지 ${i}/${numPages} 압축 중...`);
+
+            const page = await sourcePdfDoc.getPage(i);
+            const viewport = page.getViewport({ scale: dpi / 72 }); 
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+
+            const jpgImageBytes = await fetch(canvas.toDataURL('image/jpeg', quality)).then(res => res.arrayBuffer());
+            
+            const jpgImage = await newPdfDoc.embedJpg(jpgImageBytes);
+            
+            const { width, height } = page.getViewport({ scale: 1 });
+            const newPage = newPdfDoc.addPage([width, height]);
+            newPage.drawImage(jpgImage, {
+                x: 0,
+                y: 0,
+                width: newPage.getWidth(),
+                height: newPage.getHeight(),
+            });
+        }
+        
+        updateProgress(95, '최종 최적화 적용 중...');
+
+        if (elements.removeMetadata.checked) {
+            try {
+                newPdfDoc.setTitle('');
+                newPdfDoc.setAuthor('Dr.Ahn Works');
+                newPdfDoc.setSubject('');
+                newPdfDoc.setCreator('Dr.Ahn Works: Decosage');
+                newPdfDoc.setProducer('Decosage PDF Tool with pdf-lib');
+            } catch (e) { console.warn("메타데이터 설정 중 오류", e); }
+        }
+
+        const saveOptions = { useObjectStreams: elements.useObjectStreams.checked };
+        const pdfBytes = await newPdfDoc.save(saveOptions);
+        resultBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+        updateProgress(100, '압축 완료!');
+        
+        const compressedSize = resultBlob.size;
+        const compressionRatio = ((originalSize - compressedSize) / originalSize * 100);
+        const ratioText = compressionRatio > 0 ? `${compressionRatio.toFixed(1)}% 감소` : '크기 증가';
+
+        elements.resultInfo.innerHTML = `
+            <p><strong>작업 유형:</strong> 실제 PDF 압축</p>
+            <p><strong>원본 크기:</strong> ${formatFileSize(originalSize)}</p>
+            <p><strong>압축 후 크기:</strong> ${formatFileSize(compressedSize)}</p>
+            <p class="font-bold ${compressionRatio > 0 ? 'text-green-600' : 'text-red-600'}"><strong>압축률:</strong> ${ratioText}</p>
+            <hr class="my-2">
+            <p class="text-sm"><strong>적용 설정:</strong> ${dpi} DPI, 품질 ${Math.round(quality*100)}%</p>
+        `;
+        elements.resultSection.classList.remove('hidden');
+    }
+
+    async function extractPages() {
+        const extractedPdf = await PDFLib.PDFDocument.create();
+        const pagesToExtract = Array.from(selectedPages).sort((a, b) => {
+            const [fileA, pageA] = a.split('-').map(Number);
+            const [fileB, pageB] = b.split('-').map(Number);
+            if (fileA !== fileB) return fileA - fileB;
+            return pageA - pageB;
+        });
+
+        const pagesByFile = {};
+        pagesToExtract.forEach(key => {
+            const [fileIndex, pageNum] = key.split('-').map(Number);
+            if (!pagesByFile[fileIndex]) pagesByFile[fileIndex] = [];
+            pagesByFile[fileIndex].push(pageNum - 1);
+        });
+
+        let processedCount = 0;
+        for (const fileIndex in pagesByFile) {
+            const arrayBuffer = await selectedFiles[fileIndex].arrayBuffer();
+            const pdf = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+            const pageIndices = pagesByFile[fileIndex];
+            
+            updateProgress((processedCount / pagesToExtract.length) * 100, `${selectedFiles[fileIndex].name} 페이지 추출 중...`);
+            
+            const copiedPages = await extractedPdf.copyPages(pdf, pageIndices);
+            copiedPages.forEach(page => extractedPdf.addPage(page));
+            processedCount += pageIndices.length;
+        }
+
+        updateProgress(100, '추출된 PDF 생성 중...');
+        const pdfBytes = await extractedPdf.save();
+        resultBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        
+        elements.resultInfo.innerHTML = `
+            <p><strong>작업 유형:</strong> 페이지 추출</p>
+            <p><strong>추출된 페이지 수:</strong> ${pagesToExtract.length}개</p>
+            <p><strong>결과 크기:</strong> ${formatFileSize(resultBlob.size)}</p>
+        `;
+        elements.resultSection.classList.remove('hidden');
+    }
+
+    async function splitPDF() {
+        const file = selectedFiles[0];
+        const splitCount = parseInt(elements.splitPageCount.value);
+
+        updateProgress(5, 'PDF 파일 분석 중...');
+        const arrayBuffer = await file.arrayBuffer();
+        const sourcePdf = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        const totalPages = sourcePdf.getPageCount();
+        const numSegments = Math.ceil(totalPages / splitCount);
+        const zip = new JSZip();
+
+        for (let i = 0; i < numSegments; i++) {
+            updateProgress(5 + (i / numSegments) * 90, `분할 ${i + 1}/${numSegments} 생성 중...`);
+            const newPdf = await PDFLib.PDFDocument.create();
+            const start = i * splitCount;
+            const end = Math.min(start + splitCount, totalPages);
+            const indices = [];
+            for (let j = start; j < end; j++) indices.push(j);
+            const copied = await newPdf.copyPages(sourcePdf, indices);
+            copied.forEach(p => newPdf.addPage(p));
+            const pdfBytes = await newPdf.save();
+            zip.file(`split_${i + 1}.pdf`, pdfBytes);
+        }
+
+        updateProgress(95, 'ZIP 파일 생성 중...');
+        resultBlob = await zip.generateAsync({ type: 'blob' });
+        updateProgress(100, 'PDF 분할 완료!');
+
+        elements.resultInfo.innerHTML = `
+            <p><strong>작업 유형:</strong> PDF 분할</p>
+            <p><strong>원본 페이지 수:</strong> ${totalPages}페이지</p>
+            <p><strong>파일당 페이지 수:</strong> ${splitCount}페이지</p>
+            <p><strong>생성된 파일 수:</strong> ${numSegments}개</p>
+            <p><strong>ZIP 크기:</strong> ${formatFileSize(resultBlob.size)}</p>
+        `;
+        elements.resultSection.classList.remove('hidden');
+    }
+
+    function updateProgress(percent, message) {
+        elements.progressBar.style.width = percent + '%';
+        elements.progressText.textContent = message;
+    }
+
+    function downloadResult() {
+        if (!resultBlob) return;
+        const url = URL.createObjectURL(resultBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        let filename = 'processed.pdf';
+        switch (currentMode) {
+            case 'merge': filename = 'merged.pdf'; break;
+            case 'compress': filename = `compressed_${selectedFiles[0].name}`; break;
+            case 'extract': filename = 'extracted.pdf'; break;
+            case 'multiSlide': filename = `multislide_${selectedFiles[0].name}`; break;
+            case 'split': {
+                const base = selectedFiles[0].name.replace(/\.pdf$/i, '');
+                filename = `split_${base}.zip`; break;
+            }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // 초기 설정
+    setMode('merge');
+</script>
+</body>
+</html>
+
